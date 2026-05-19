@@ -1,6 +1,3 @@
-## Written by: Harshet Anand
-## Attribution: Hugh Liu, Jayden Ye, Joshua Dietrich, and and Liuyu Chen
-## Collaborated with Sreya Sarathy from CS540
 import numpy as np
 import math
 
