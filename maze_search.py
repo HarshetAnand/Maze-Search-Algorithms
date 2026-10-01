@@ -1,323 +1,291 @@
-import numpy as np
+"""Solve an ASCII maze with four search strategies and compare them.
+
+The maze is read from a text file drawn with '+', '-' and '|' characters.
+Each cell is three characters wide and two characters tall, for example:
+
+    +--+--+--+
+    |     |  |
+    +  +--+  +
+    |        |
+    +--+--+--+
+
+The entrance is the top-center cell and the exit is the bottom-center cell.
+
+The script runs breadth-first search, depth-first search, and A* search with
+two heuristics (Manhattan and Euclidean distance to the exit). It writes the
+shortest path, the solved maze, and the set of cells each strategy visited,
+so the strategies can be compared by how much of the maze they explore.
+"""
+
 import math
 
-# modify weight and height by yourself
-# the width I had was 57 while the height I had was 41
-width, height = 57, 41
-center_idx = int((width-1)/2)
+import numpy as np
 
-M = np.zeros([height*2+1, width*3+1]) # space
+MAZE_FILE = 'maze.txt'
 
-# example-maze is the example maze shown to you. You can copy and past
-# the content in the example maze into a txt file and name it `example-maze.txt`
-file = open('example-maze.txt', 'r')
-data = []
-for row in file:
-    data.append(row.strip())
+# Codes used in the character grid.
+SPACE, CORNER, HORIZONTAL_WALL, VERTICAL_WALL, PATH = 0, 1, 2, 3, 4
 
-# Iterate through each cell of the 'data' list and convert the ASCII characters to numeric values in the 'M' array.
-for h in range(height*2+1):
-    for w in range(width*3+1):
+
+# ---------------------------------------------------------------------------
+# Maze loading
+# ---------------------------------------------------------------------------
+
+with open(MAZE_FILE, 'r') as file:
+    data = [row.strip() for row in file if row.strip()]
+
+# Maze size in cells, taken from the size of the drawing.
+height = (len(data) - 1) // 2
+width = (len(data[0]) - 1) // 3
+center_idx = int((width - 1) / 2)
+
+start = (0, center_idx)
+goal = (height - 1, center_idx)
+
+# Character grid as numbers, used later to draw the solution.
+M = np.zeros([height * 2 + 1, width * 3 + 1])
+for h in range(height * 2 + 1):
+    for w in range(width * 3 + 1):
         if data[h][w] == ' ':
-            M[h,w] = 0 # 0 for ' '
+            M[h, w] = SPACE
         if data[h][w] == '+':
-            M[h,w] = 1 # 1 for "+"
+            M[h, w] = CORNER
         if data[h][w] == '-':
-            M[h,w] = 2 # 2 for '-'
+            M[h, w] = HORIZONTAL_WALL
         if data[h][w] == '|':
-            M[h,w] = 3 # 3 for '|'
-            # Uncomment the following lines to print the resulting 'M' array and its shape.
-# print(M)
-# print(M.shape)
+            M[h, w] = VERTICAL_WALL
 
-# Define the 'Cell' class to represent each cell in the grid.
+
 class Cell:
-    def _init_(self, i, j):
-        # Constructor method to initialize the cell with its row 'i' and column 'j' coordinates.
+    def __init__(self, i, j):
         self.i = i
         self.j = j
-        self.succ = ''
-        self.action = ''  # which action the parent takes to get this cell
+        self.succ = ''    # moves available from this cell, a subset of 'UDLR'
+        self.action = ''  # the move the parent took to reach this cell
 
-        # Create a 2D list 'cells' to represent the grid of 'Cell' objects.
-        # Each element in 'cells' will be a 'Cell' object initialized with its corresponding row and column index.
-cells = [[Cell(i,j) for j in range(width)] for i in range(height)]
 
-# Initialize an empty list 'succ_matrix' to store the successor directions for each cell in the maze.
+cells = [[Cell(i, j) for j in range(width)] for i in range(height)]
+
+# A move is available when there is no wall on that side of the cell.
 succ_matrix = []
-# Iterate through each row in the 'data' list (maze representation).
-for i in range(1,len(data),2):
+for i in range(1, len(data), 2):
     curr_row = []
-    # Iterate through each column in the current row.
-    for j in range(1,len(data[0])-1,3):
+    for j in range(1, len(data[0]) - 1, 3):
         curr_cell = ''
-
-        # Check for available successors (adjacent cells with space) and add them to 'curr_cell'.
-        if data[i-1][j] == ' ':
-            if i != 1: # prevent leaving the maze
+        if data[i - 1][j] == ' ':
+            if i != 1:  # the entrance is open, but do not leave the maze
                 curr_cell += 'U'
-        if data[i+1][j] == ' ':
-            if i != len(data)-2: # prevent leaving the maze
+        if data[i + 1][j] == ' ':
+            if i != len(data) - 2:  # the exit is open, but do not leave the maze
                 curr_cell += 'D'
-        if data[i][j-1] == ' ':
+        if data[i][j - 1] == ' ':
             curr_cell += 'L'
-        if data[i][j+2] == ' ':
+        if data[i][j + 2] == ' ':
             curr_cell += 'R'
         curr_row.append(curr_cell)
     succ_matrix.append(curr_row)
 
-# Update the 'succ' attribute of each cell in the 'cells' array using the 'succ_matrix'.
 for i in range(height):
     for j in range(width):
         cells[i][j].succ = succ_matrix[i][j]
 
-# Save the successor matrix to a file named "Question2.txt" in a CSV format.
-with open("Question2.txt", "w") as f:
+
+def write_visited(filename, visited):
+    """Write a grid of 1s and 0s marking which cells a search visited."""
+    with open(filename, "w") as f:
+        for h in range(height):
+            for w in range(width):
+                f.write("1" if (h, w) in visited else "0")
+                if w != width - 1:
+                    f.write(",")
+            f.write("\n")
+
+
+with open("successors.txt", "w") as f:
     for cell_row in cells:
-        # Write the comma-separated successor directions for each cell in the current row to the file.
         f.write(",".join([cell_col.succ for cell_col in cell_row]) + "\n")
 
 
-# Initialize an empty set 'visited' to keep track of visited cells during the BFS.
+# ---------------------------------------------------------------------------
+# Breadth-first search
+# ---------------------------------------------------------------------------
+
+# Expand the maze one layer at a time. s1 is the current layer and s2 collects
+# the next one. Each cell records the move that first reached it, which is
+# enough to rebuild the shortest path afterward.
 visited = set()
-# entrance:
-s1 = {(0,center_idx)}
+s1 = {start}
 s2 = set()
-while (height - 1, center_idx) not in visited:
+while goal not in visited:
     for a in s1:
         visited.add(a)
         i, j = a[0], a[1]
         succ = cells[i][j].succ
-        if 'U' in succ and (i-1,j) not in (s1 | s2 | visited):
-            s2.add((i-1,j))
-            cells[i-1][j].action = 'U'
-        if 'D' in succ and (i+1,j) not in (s1 | s2 | visited):
-            s2.add((i+1,j))
-            cells[i+1][j].action = 'D'
-        if 'L' in succ and (i,j-1) not in (s1 | s2 | visited):
-            s2.add((i,j-1))
-            cells[i][j-1].action = 'L'
-        if 'R' in succ and (i,j+1) not in (s1 | s2 | visited):
-            s2.add((i,j+1))
-            cells[i][j+1].action = 'R'
+        if 'U' in succ and (i - 1, j) not in (s1 | s2 | visited):
+            s2.add((i - 1, j))
+            cells[i - 1][j].action = 'U'
+        if 'D' in succ and (i + 1, j) not in (s1 | s2 | visited):
+            s2.add((i + 1, j))
+            cells[i + 1][j].action = 'D'
+        if 'L' in succ and (i, j - 1) not in (s1 | s2 | visited):
+            s2.add((i, j - 1))
+            cells[i][j - 1].action = 'L'
+        if 'R' in succ and (i, j + 1) not in (s1 | s2 | visited):
+            s2.add((i, j + 1))
+            cells[i][j + 1].action = 'R'
 
- # Update 's1' with the cells to explore in the next iteration, and reset 's2' for the next iteration.
     s1 = s2
     s2 = set()
 
-# The following lines of code are for BFS
-# Save the visited cells from the DFS algorithm to a file "Question5.txt" in a CSV format.
-with open("Question5.txt", "w") as f:
-    for h in range(height):
-        for w in range(width):
-            # Write "1" to the file if the cell (h, w) is visited; otherwise, write "0".
-            f.write("1" if (h, w) in visited else "0")
-            if w != width - 1:
-                f.write(",")
-        f.write("\n")
+write_visited("bfs_visited.txt", visited)
 
-# Initialize the current cell 'cur' to the goal cell (height - 1, center_idx).
-cur = (height - 1, center_idx)
+
+# ---------------------------------------------------------------------------
+# Shortest path
+# ---------------------------------------------------------------------------
+
+# Walk backward from the exit, undoing the recorded move at each cell.
+cur = goal
 s = ''
 seq = []
 
-# While the current cell is not the starting cell (0, center_idx), record the actions and update the 'cur' cell.
-while cur != (0, center_idx):
+while cur != start:
     seq.append(cur)
     i, j = cur[0], cur[1]
     t = cells[i][j].action
     s += t
 
-    # Update the 'cur' cell based on the action taken.
-    if t == 'U': cur = (i+1, j)
-    if t == 'D': cur = (i-1, j)
-    if t == 'L': cur = (i, j+1)
-    if t == 'R': cur = (i, j-1)
+    if t == 'U': cur = (i + 1, j)
+    if t == 'D': cur = (i - 1, j)
+    if t == 'L': cur = (i, j + 1)
+    if t == 'R': cur = (i, j - 1)
 
-    # Reverse the sequence of actions to get the correct order.
 action = s[::-1]
 
-# Write the action sequence to a file named "Question3.txt".
-with open("Question3.txt", "w") as f:
+with open("solution_moves.txt", "w") as f:
     f.write(action + "\n")
 
-# Add the starting and goal cells to the 'seq' list.
-seq.append((0, center_idx))
+seq.append(start)
 seq = seq[::-1]
 
-# Update the maze grid 'M' to mark the cells that form the path with the value 4.
-for (a,b) in seq:
-    M[2*a+1, 3*b+1] = 4
-    M[2*a+1, 3*b+2] = 4
-    if (a+1,b) in seq and M[2*a+2, 3*b+1] != 2:
-        M[2*a+2, 3*b+1] = 4
-        M[2*a+2, 3*b+2] = 4
+# Mark the path on the character grid, including the gaps between cells.
+for (a, b) in seq:
+    M[2 * a + 1, 3 * b + 1] = PATH
+    M[2 * a + 1, 3 * b + 2] = PATH
+    if (a + 1, b) in seq and M[2 * a + 2, 3 * b + 1] != HORIZONTAL_WALL:
+        M[2 * a + 2, 3 * b + 1] = PATH
+        M[2 * a + 2, 3 * b + 2] = PATH
 
-    if (a,b-1) in seq and M[2*a+1, 3*b] != 1 and M[2*a+1, 3*b] != 3:
-        M[2*a+1, 3*b] = 4
+    if (a, b - 1) in seq and M[2 * a + 1, 3 * b] != CORNER and M[2 * a + 1, 3 * b] != VERTICAL_WALL:
+        M[2 * a + 1, 3 * b] = PATH
 
-# Mark the starting and goal cells in 'M' with the value 4.
-M[0,3*center_idx+1] = 4
-M[0,3*center_idx+2] = 4
-M[2*height,3*center_idx+1] = 4
-M[2*height,3*center_idx+2] = 4
+# Mark the entrance and exit openings.
+M[0, 3 * center_idx + 1] = PATH
+M[0, 3 * center_idx + 2] = PATH
+M[2 * height, 3 * center_idx + 1] = PATH
+M[2 * height, 3 * center_idx + 2] = PATH
 
-# The following lines of code are for the Maze
-# Save the maze solution to a file "Question4.txt" with a visual representation using ASCII characters.
-with open("Question4.txt", "w") as f:
-    for h in range(height*2+1):
-        for w in range(width*3+1):
-            # Determine the appropriate ASCII character based on the value of M[h, w].
-            if M[h,w]==0:
-                f.write(' ')
-            elif M[h,w]==1:
-                f.write('+')
-            elif M[h,w]==2:
-                f.write('-')
-            elif M[h,w]==3:
-                f.write('|')
-            elif M[h,w]==4:
-                f.write('@')
-                # Move to the next line after each row is written.
+symbols = {SPACE: ' ', CORNER: '+', HORIZONTAL_WALL: '-', VERTICAL_WALL: '|', PATH: '@'}
+
+with open("solved_maze.txt", "w") as f:
+    for h in range(height * 2 + 1):
+        for w in range(width * 3 + 1):
+            f.write(symbols[M[h, w]])
         f.write('\n')
 
 
-# The following code performs depth first search.
-# We start off with initializing an empty set to store the visited cells during the DFS traversal.
+# ---------------------------------------------------------------------------
+# Depth-first search
+# ---------------------------------------------------------------------------
+
+# Follow one branch as far as it goes before backing up. The most recently
+# discovered cell is always expanded next, so the frontier is a stack.
 visited = set()
-s1 = [(0, center_idx)]
-s2 = set()
+stack = [start]
 
-# Perform the DFS traversal while the goal cell (height-1, center_idx) has not been visited.
-while (height-1, center_idx) not in visited:
-    # Explore the cells in the current iteration (stack 's1').
-    for a in s1:
-        visited.add(a)
+while stack and goal not in visited:
+    a = stack.pop()
+    if a in visited:
+        continue
+    visited.add(a)
 
-        # Extract the row 'i' and column 'j' from the current cell.
-        i, j = a[0], a[1]
-        succ = cells[i][j].succ
+    i, j = a[0], a[1]
+    succ = cells[i][j].succ
+    if 'U' in succ and (i - 1, j) not in visited:
+        stack.append((i - 1, j))
+    if 'D' in succ and (i + 1, j) not in visited:
+        stack.append((i + 1, j))
+    if 'L' in succ and (i, j - 1) not in visited:
+        stack.append((i, j - 1))
+    if 'R' in succ and (i, j + 1) not in visited:
+        stack.append((i, j + 1))
 
-        # Check and add neighboring cells to 's2' if they are valid and not yet explored.
-        # Also, record the action to reach the neighbor cell.
-        if 'U' in succ and (i - 1, j) not in (s2 | visited) and (i - 1, j) not in s1:
-            s2.add((i - 1, j))
-            cells[i - 1][j].action = 'U'
-        if 'D' in succ and (i + 1, j) not in (s2 | visited) and (i + 1, j) not in s1:
-            s2.add((i + 1, j))
-            cells[i + 1][j].action = 'D'
-        if 'L' in succ and (i, j - 1) not in (s2 | visited) and (i, j - 1) not in s1:
-            s2.add((i, j - 1))
-            cells[i][j - 1].action = 'L'
-        if 'R' in succ and (i, j + 1) not in (s2 | visited) and (i, j + 1) not in s1:
-            s2.add((i, j + 1))
-            cells[i][j + 1].action = 'R'
-        # Transfer the cells from 's2' to 's1' for the next iteration.
-    for b in s2:
-        s1.append(b)
+write_visited("dfs_visited.txt", visited)
 
-    # Reverse the order of cells in 's1' to ensure DFS exploration.
-    s1.reverse()
-    # Clear 's2' for the next iteration.
-    s2 = set()
 
-# Save the visited squares from the Depth-First Search (DFS) algorithm to a file "Question6.txt".
-with open("Question6.txt", "w") as f:
+# ---------------------------------------------------------------------------
+# A* search
+# ---------------------------------------------------------------------------
+
+# Two estimates of the remaining distance from each cell to the exit.
+man = {(i, j): abs(i - (height - 1)) + abs(j - center_idx)
+       for j in range(width) for i in range(height)}
+euc = {(i, j): math.sqrt((i - (height - 1)) ** 2 + (j - center_idx) ** 2)
+       for j in range(width) for i in range(height)}
+
+with open("manhattan_distances.txt", "w") as f:
     for h in range(height):
         for w in range(width):
-            f.write("1" if (h, w) in visited else "0")
-            # Write "1" to the file if the square (h, w) is visited; otherwise, write "0".
-            # If it's not the last element in the row (column), write a comma (",") to separate the values.
-            if w != width - 1:
-                f.write(",")
-                # Move to the next line after each row is written.
-        f.write("\n")
-
-
-# The following lines of code are used for Part2 of P5
-# Calculate the Manhattan distances (distance from each square to the goal) and store them in the 'man' dictionary.
-# The 'math.sqrt' function is used to compute the square root.
-man = {(i,j): abs(i-(height - 1)) + abs(j-center_idx) for j in range(width) for i in range(height)}
-euc = {(i,j): math.sqrt((i-(height-1))*2 + (j-center_idx)*2 ) for j in range(width) for i in range(height)}
-
-# Save the Manhattan distances to the goal for each square in a CSV format to the file "Question7.txt".
-with open("Question7.txt", "w") as f:
-    for h in range(height):
-        for w in range(width):
-            # Write the Manhattan distance value for the current square (h, w) to the file.
             f.write(str(man[(h, w)]))
-            # If it's not the last element in the row (column), write a comma (",") to separate the values.
             if w != width - 1:
                 f.write(",")
-                # Move to the next line after each row is written.
         f.write("\n")
 
 
-# First, we define the A* search algorithm function with parameters: height, width, dist_method, man, euc.
 def a_star_search(height, width, dist_method, man, euc):
-    # Create a dictionary 'g' to store the cost of reaching each cell from the starting cell.
+    """Run A* from the entrance to the exit and return the cells it visited.
 
-    g = {(i,j): float('inf') for j in range(width) for i in range(height)}
+    Cells are expanded in order of g + h, where g is the number of moves taken
+    so far and h is the chosen heuristic. dist_method should be either
+    'manhattan' or 'euclidean'.
+    """
+    if dist_method == 'manhattan':
+        heuristic = man
+    elif dist_method == 'euclidean':
+        heuristic = euc
+    else:
+        raise ValueError('distance method should be either manhattan or euclidean')
+
+    g = {(i, j): float('inf') for j in range(width) for i in range(height)}
     g[(0, center_idx)] = 0
 
-    queue = [(0,center_idx)]
+    queue = [(0, center_idx)]
     visited = set()
 
-    # Perform the A* search while there are cells in the queue to explore,
-    # and the goal cell (height - 1, center_idx) has not been visited yet.
-    while queue and (height - 1,center_idx) not in visited:
-        if dist_method == 'manhattan':
-            queue.sort(key=lambda x: g[x] + man[x])
-        elif dist_method == 'euclidean':
-            queue.sort(key=lambda x: g[x] + euc[x])
-        else:
-            print('distance method should be either mahattan or euclidean!')
+    while queue and (height - 1, center_idx) not in visited:
+        queue.sort(key=lambda x: g[x] + heuristic[x])
         point = queue.pop(0)
         if point not in visited:
             visited.add(point)
             i, j = point[0], point[1]
             succ = cells[i][j].succ
-            if 'U' in succ and (i-1,j) not in visited:
-                if (i-1,j) not in queue: queue += [(i-1,j)]
-                g[(i-1,j)] = min(g[(i-1,j)], g[(i,j)]+1)
-            if 'D' in succ and (i+1,j) not in visited:
-                if (i+1,j) not in queue: queue += [(i+1,j)]
-                g[(i+1,j)] = min(g[(i+1,j)], g[(i,j)]+1)
-            if 'L' in succ and (i,j-1) not in visited:
-                if (i,j-1) not in queue: queue += [(i,j-1)]
-                g[(i,j-1)] = min(g[(i,j-1)], g[(i,j)]+1)
-            if 'R' in succ and (i,j+1) not in visited:
-                if (i,j+1) not in queue: queue += [(i,j+1)]
-                g[(i,j+1)] = min(g[(i,j+1)], g[(i,j)]+1)
+            if 'U' in succ and (i - 1, j) not in visited:
+                if (i - 1, j) not in queue: queue += [(i - 1, j)]
+                g[(i - 1, j)] = min(g[(i - 1, j)], g[(i, j)] + 1)
+            if 'D' in succ and (i + 1, j) not in visited:
+                if (i + 1, j) not in queue: queue += [(i + 1, j)]
+                g[(i + 1, j)] = min(g[(i + 1, j)], g[(i, j)] + 1)
+            if 'L' in succ and (i, j - 1) not in visited:
+                if (i, j - 1) not in queue: queue += [(i, j - 1)]
+                g[(i, j - 1)] = min(g[(i, j - 1)], g[(i, j)] + 1)
+            if 'R' in succ and (i, j + 1) not in visited:
+                if (i, j + 1) not in queue: queue += [(i, j + 1)]
+                g[(i, j + 1)] = min(g[(i, j + 1)], g[(i, j)] + 1)
     return visited
 
-# list of squares searched by A* with Manhattan distance to the goal as the heuristic
-a_star_man_visited = a_star_search(height, width, 'manhattan', man, euc)
 
-# list of squares searched by A* with Euclidean distance to the goal as the heuristic
+a_star_man_visited = a_star_search(height, width, 'manhattan', man, euc)
 a_star_euclidean_visited = a_star_search(height, width, 'euclidean', man, euc)
 
-# The following lines of code are used to generate the output for question 8 & question 9
-# Open the file "Question8.txt" in write mode ('w').
-# The 'with' statement ensures that the file is automatically closed after the block of code is executed.
-# The file will be created if it doesn't exist or overwritten if it already exists.
-with open("Question8.txt", "w") as f:
-    # Iterate over the 'height' range.
-    for h in range(height):
-        for w in range(width):
-            f.write("1" if (h, w) in a_star_man_visited else "0")
-            if w != width - 1:
-                f.write(",")
-        f.write("\n")
-
-# Open the file "Question9.txt" in write mode ('w').
-# The 'with' statement ensures that the file is automatically closed after the block of code is executed.
-# The file will be created if it doesn't exist or overwritten if it already exists.
-with open("Question9.txt", "w") as f:
-    # Iterate over the 'height' range.
-    for h in range(height):
-        for w in range(width):
-            f.write("1" if (h, w) in a_star_euclidean_visited else "0")
-            if w != width - 1:
-                f.write(",")
-        f.write("\n")
+write_visited("astar_manhattan_visited.txt", a_star_man_visited)
+write_visited("astar_euclidean_visited.txt", a_star_euclidean_visited)
